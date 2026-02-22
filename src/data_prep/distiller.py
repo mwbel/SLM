@@ -2,10 +2,16 @@
 
 import os
 import json
-import google.generativeai as genai
+import sys
 from pathlib import Path
 from typing import List, Dict, Optional
-from ..utils.api_key_rotator import APIKeyRotator
+
+# 添加父目录到路径以支持导入
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from google import genai
+from google.genai import types
+from utils.api_key_rotator import APIKeyRotator
 
 
 def extract_text(file_path: str) -> str:
@@ -78,22 +84,8 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
     if rotator:
         api_key = rotator.get_current_key()
 
-    # 配置Gemini API
-    genai.configure(api_key=api_key)
-
-    # 配置模型 - 使用Gemini 1.5 Flash
-    generation_config = {
-        "temperature": 0.7,
-        "top_p": 0.95,
-        "top_k": 40,
-        "max_output_tokens": 8192,
-        "response_mime_type": "application/json",  # JSON Mode
-    }
-
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        generation_config=generation_config,
-    )
+    # 配置Gemini客户端
+    client = genai.Client(api_key=api_key)
 
     # System Prompt - 领域专家角色
     system_prompt = f"""你是一位专业的领域知识专家和教学设计师。你的任务是从给定的文本中提取核心知识点，并生成高质量的问答对话对，用于训练小型语言模型。
@@ -122,10 +114,29 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
 
     try:
         # 调用Gemini API
-        response = model.generate_content(system_prompt)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=system_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+                top_p=0.95,
+                top_k=40,
+                max_output_tokens=8192,
+                response_mime_type="application/json"
+            )
+        )
 
         # 解析JSON响应
-        result = json.loads(response.text)
+        response_text = response.text.strip()
+
+        # 如果响应被截断，尝试修复
+        if not response_text.endswith(']'):
+            # 找到最后一个完整的对象
+            last_complete = response_text.rfind('},')
+            if last_complete > 0:
+                response_text = response_text[:last_complete+1] + '\n]'
+
+        result = json.loads(response_text)
 
         # 验证格式
         if not isinstance(result, list):
@@ -212,7 +223,7 @@ class DataDistiller:
                 self.rotator = APIKeyRotator(api_keys, cooldown_minutes=60)
             else:
                 # 使用默认密钥列表
-                from ..utils.api_key_rotator import create_default_rotator
+                from utils.api_key_rotator import create_default_rotator
                 self.rotator = create_default_rotator(cooldown_minutes=60)
                 print(f"使用默认API密钥池，共 {len(self.rotator.api_keys)} 个密钥")
             self.api_key = None
