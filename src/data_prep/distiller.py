@@ -5,6 +5,7 @@ import json
 import google.generativeai as genai
 from pathlib import Path
 from typing import List, Dict, Optional
+from ..utils.api_key_rotator import APIKeyRotator
 
 
 def extract_text(file_path: str) -> str:
@@ -57,14 +58,15 @@ def extract_text(file_path: str) -> str:
         raise ValueError(f"不支持的文件格式: {file_ext}，仅支持 .pdf 和 .txt")
 
 
-def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10) -> List[Dict]:
+def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: Optional[APIKeyRotator] = None) -> List[Dict]:
     """
     使用Gemini API进行知识蒸馏
 
     Args:
         text: 输入文本
-        api_key: Gemini API密钥
+        api_key: Gemini API密钥（如果提供rotator则忽略此参数）
         num_pairs: 生成的对话对数量（默认10组）
+        rotator: API密钥轮换器（可选）
 
     Returns:
         对话对列表，格式: [{"instruction": "...", "input": "", "output": "..."}]
@@ -72,6 +74,10 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10) -> List[Di
     Raises:
         Exception: API调用失败
     """
+    # 如果提供了轮换器，使用轮换器的密钥
+    if rotator:
+        api_key = rotator.get_current_key()
+
     # 配置Gemini API
     genai.configure(api_key=api_key)
 
@@ -130,12 +136,35 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10) -> List[Di
             if not all(key in item for key in ["instruction", "input", "output"]):
                 raise ValueError("对话对缺少必需字段: instruction, input, output")
 
+        # 标记成功
+        if rotator:
+            rotator.mark_success()
+
         return result
 
     except json.JSONDecodeError as e:
+        if rotator:
+            rotator.mark_error(f"JSON解析失败: {e}")
         raise Exception(f"解析Gemini响应失败: {e}\n响应内容: {response.text}")
     except Exception as e:
-        raise Exception(f"Gemini API调用失败: {e}")
+        error_msg = str(e).lower()
+
+        # 检查是否是配额错误
+        if "quota" in error_msg or "resource_exhausted" in error_msg or "429" in error_msg:
+            if rotator:
+                print(f"检测到配额错误，尝试切换API密钥...")
+                try:
+                    new_key = rotator.mark_quota_exceeded()
+                    # 递归重试，使用新密钥
+                    return distill_with_gemini(text, new_key, num_pairs, rotator)
+                except RuntimeError as re:
+                    raise Exception(f"所有API密钥配额已用完: {re}")
+            else:
+                raise Exception(f"API配额已用完: {e}")
+        else:
+            if rotator:
+                rotator.mark_error(str(e))
+            raise Exception(f"Gemini API调用失败: {e}")
 
 
 def save_as_jsonl(data: List[Dict], output_path: str) -> str:
@@ -167,14 +196,31 @@ def save_as_jsonl(data: List[Dict], output_path: str) -> str:
 class DataDistiller:
     """数据蒸馏器 - 完整的蒸馏流程"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str = None, api_keys: List[str] = None, use_rotation: bool = True):
         """
         初始化数据蒸馏器
 
         Args:
-            api_key: Gemini API密钥
+            api_key: 单个Gemini API密钥（如果不使用轮换）
+            api_keys: 多个API密钥列表（用于轮换）
+            use_rotation: 是否使用密钥轮换（默认True）
         """
-        self.api_key = api_key
+        self.use_rotation = use_rotation
+
+        if use_rotation:
+            if api_keys:
+                self.rotator = APIKeyRotator(api_keys, cooldown_minutes=60)
+            else:
+                # 使用默认密钥列表
+                from ..utils.api_key_rotator import create_default_rotator
+                self.rotator = create_default_rotator(cooldown_minutes=60)
+                print(f"使用默认API密钥池，共 {len(self.rotator.api_keys)} 个密钥")
+            self.api_key = None
+        else:
+            if not api_key:
+                raise ValueError("未启用轮换时必须提供api_key参数")
+            self.api_key = api_key
+            self.rotator = None
 
     def process_file(
         self,
@@ -200,7 +246,10 @@ class DataDistiller:
 
         # 2. 知识蒸馏
         print(f"正在使用Gemini进行知识蒸馏...")
-        distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
+        if self.use_rotation:
+            distilled_data = distill_with_gemini(text, None, num_pairs, self.rotator)
+        else:
+            distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
         print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
 
         # 3. 保存为JSONL
@@ -250,13 +299,48 @@ class DataDistiller:
 
         return output_paths
 
+    def get_status_report(self) -> str:
+        """
+        获取API密钥使用状态报告
+
+        Returns:
+            状态报告字符串
+        """
+        if self.use_rotation and self.rotator:
+            return self.rotator.get_status_report()
+        else:
+            return "未启用密钥轮换"
+
 
 # 使用示例
 if __name__ == "__main__":
-    # 示例：处理单个文件
-    api_key = "YOUR_GEMINI_API_KEY"  # 替换为实际的API密钥
+    # 示例1：使用默认密钥池（自动轮换）
+    print("=== 示例1: 使用默认密钥池 ===")
+    distiller = DataDistiller()  # 自动使用默认的9个API密钥
 
-    distiller = DataDistiller(api_key)
+    # 处理单个文件
+    output_file = distiller.process_file(
+        file_path="data/example.pdf",
+        output_dir="data",
+        num_pairs=15
+    )
+    print(f"蒸馏完成: {output_file}")
+
+    # 查看密钥使用状态
+    print(distiller.get_status_report())
+
+    # 示例2：使用自定义密钥列表
+    print("\n=== 示例2: 使用自定义密钥列表 ===")
+    custom_keys = [
+        "YOUR_API_KEY_1",
+        "YOUR_API_KEY_2",
+        "YOUR_API_KEY_3"
+    ]
+    distiller2 = DataDistiller(api_keys=custom_keys, use_rotation=True)
+
+    # 示例3：不使用轮换（单个密钥）
+    print("\n=== 示例3: 单个密钥模式 ===")
+    distiller3 = DataDistiller(api_key="YOUR_SINGLE_API_KEY", use_rotation=False)
 
     # 处理单个文件
     output_file = distiller.process_file(
