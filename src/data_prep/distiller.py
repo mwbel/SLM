@@ -1,0 +1,267 @@
+"""数据蒸馏模块 - 使用Gemini API进行知识蒸馏"""
+
+import os
+import json
+import google.generativeai as genai
+from pathlib import Path
+from typing import List, Dict, Optional
+
+
+def extract_text(file_path: str) -> str:
+    """
+    提取文件文本内容
+
+    Args:
+        file_path: 文件路径（支持PDF和TXT）
+
+    Returns:
+        提取的文本内容
+
+    Raises:
+        ValueError: 不支持的文件格式
+        FileNotFoundError: 文件不存在
+    """
+    file_path = Path(file_path)
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"文件不存在: {file_path}")
+
+    file_ext = file_path.suffix.lower()
+
+    if file_ext == '.txt':
+        # 提取TXT文件
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    elif file_ext == '.pdf':
+        # 提取PDF文件 - 使用PyMuPDF (fitz)
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(file_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+            return text
+        except ImportError:
+            # 如果PyMuPDF不可用，尝试使用pdfminer.six
+            try:
+                from pdfminer.high_level import extract_text as pdf_extract
+                return pdf_extract(str(file_path))
+            except ImportError:
+                raise ImportError(
+                    "请安装PDF处理库: pip install PyMuPDF 或 pip install pdfminer.six"
+                )
+
+    else:
+        raise ValueError(f"不支持的文件格式: {file_ext}，仅支持 .pdf 和 .txt")
+
+
+def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10) -> List[Dict]:
+    """
+    使用Gemini API进行知识蒸馏
+
+    Args:
+        text: 输入文本
+        api_key: Gemini API密钥
+        num_pairs: 生成的对话对数量（默认10组）
+
+    Returns:
+        对话对列表，格式: [{"instruction": "...", "input": "", "output": "..."}]
+
+    Raises:
+        Exception: API调用失败
+    """
+    # 配置Gemini API
+    genai.configure(api_key=api_key)
+
+    # 配置模型 - 使用Gemini 1.5 Flash
+    generation_config = {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 8192,
+        "response_mime_type": "application/json",  # JSON Mode
+    }
+
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config=generation_config,
+    )
+
+    # System Prompt - 领域专家角色
+    system_prompt = f"""你是一位专业的领域知识专家和教学设计师。你的任务是从给定的文本中提取核心知识点，并生成高质量的问答对话对，用于训练小型语言模型。
+
+要求：
+1. 仔细阅读并理解输入文本的核心内容
+2. 提取至少 {num_pairs} 组有价值的知识点
+3. 为每个知识点生成一个自然的问题（instruction）和详细的回答（output）
+4. 问题应该多样化，包括：概念解释、操作步骤、最佳实践、常见问题等
+5. 回答应该准确、详细、专业，基于文本内容
+6. input字段保持为空字符串
+
+输出格式（严格的JSON数组）：
+[
+  {{
+    "instruction": "问题内容",
+    "input": "",
+    "output": "详细的回答内容"
+  }}
+]
+
+现在请处理以下文本：
+
+{text}
+"""
+
+    try:
+        # 调用Gemini API
+        response = model.generate_content(system_prompt)
+
+        # 解析JSON响应
+        result = json.loads(response.text)
+
+        # 验证格式
+        if not isinstance(result, list):
+            raise ValueError("Gemini返回的不是JSON数组格式")
+
+        # 验证每个对话对的格式
+        for item in result:
+            if not all(key in item for key in ["instruction", "input", "output"]):
+                raise ValueError("对话对缺少必需字段: instruction, input, output")
+
+        return result
+
+    except json.JSONDecodeError as e:
+        raise Exception(f"解析Gemini响应失败: {e}\n响应内容: {response.text}")
+    except Exception as e:
+        raise Exception(f"Gemini API调用失败: {e}")
+
+
+def save_as_jsonl(data: List[Dict], output_path: str) -> str:
+    """
+    将数据保存为JSONL格式
+
+    Args:
+        data: 对话对列表
+        output_path: 输出文件路径（相对于项目根目录）
+
+    Returns:
+        保存的文件路径
+    """
+    # 确保使用相对路径
+    output_path = Path(output_path)
+
+    # 创建目录（如果不存在）
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 写入JSONL格式
+    with open(output_path, 'w', encoding='utf-8') as f:
+        for item in data:
+            json_line = json.dumps(item, ensure_ascii=False)
+            f.write(json_line + '\n')
+
+    return str(output_path)
+
+
+class DataDistiller:
+    """数据蒸馏器 - 完整的蒸馏流程"""
+
+    def __init__(self, api_key: str):
+        """
+        初始化数据蒸馏器
+
+        Args:
+            api_key: Gemini API密钥
+        """
+        self.api_key = api_key
+
+    def process_file(
+        self,
+        file_path: str,
+        output_dir: str = "data",
+        num_pairs: int = 10
+    ) -> str:
+        """
+        处理单个文件的完整蒸馏流程
+
+        Args:
+            file_path: 输入文件路径
+            output_dir: 输出目录（默认data/）
+            num_pairs: 生成的对话对数量
+
+        Returns:
+            输出JSONL文件路径
+        """
+        # 1. 提取文本
+        print(f"正在提取文本: {file_path}")
+        text = extract_text(file_path)
+        print(f"提取完成，文本长度: {len(text)} 字符")
+
+        # 2. 知识蒸馏
+        print(f"正在使用Gemini进行知识蒸馏...")
+        distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
+        print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
+
+        # 3. 保存为JSONL
+        input_filename = Path(file_path).stem
+        output_path = Path(output_dir) / f"{input_filename}_distilled.jsonl"
+        saved_path = save_as_jsonl(distilled_data, str(output_path))
+        print(f"已保存到: {saved_path}")
+
+        return saved_path
+
+    def process_directory(
+        self,
+        input_dir: str,
+        output_dir: str = "data",
+        num_pairs: int = 10
+    ) -> List[str]:
+        """
+        批量处理目录中的所有文件
+
+        Args:
+            input_dir: 输入目录
+            output_dir: 输出目录
+            num_pairs: 每个文件生成的对话对数量
+
+        Returns:
+            所有输出文件路径列表
+        """
+        input_path = Path(input_dir)
+        output_paths = []
+
+        # 支持的文件格式
+        supported_extensions = ['.pdf', '.txt']
+
+        # 遍历目录
+        for file_path in input_path.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                try:
+                    output_path = self.process_file(
+                        str(file_path),
+                        output_dir,
+                        num_pairs
+                    )
+                    output_paths.append(output_path)
+                except Exception as e:
+                    print(f"处理文件 {file_path} 失败: {e}")
+                    continue
+
+        return output_paths
+
+
+# 使用示例
+if __name__ == "__main__":
+    # 示例：处理单个文件
+    api_key = "YOUR_GEMINI_API_KEY"  # 替换为实际的API密钥
+
+    distiller = DataDistiller(api_key)
+
+    # 处理单个文件
+    output_file = distiller.process_file(
+        file_path="data/example.pdf",
+        output_dir="data",
+        num_pairs=15
+    )
+    print(f"蒸馏完成: {output_file}")
