@@ -1,0 +1,25 @@
+# SLM Trainer Configuration
+
+# Model settings
+model:
+  base_model: "Qwen/Qwen2.5-0.5B"
+  max_seq_length: 2048
+
+# LoRA settings
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+
+# Training settings
+training:
+  batch_size: 4
+  learning_rate: 2e-4
+  num_epochs: 3
+  warmup_steps: 10
+
+# Paths
+paths:
+  data_dir: "./data"
+  model_dir: "./models"
+  output_dir: "./outputs"
