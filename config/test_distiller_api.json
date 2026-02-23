@@ -1,0 +1,10 @@
+{
+    "gemini": [
+        {
+            "api_key": "test-key-1",
+            "model": "gemini-1.5-flash",
+            "name": "Gemini-Test-1",
+            "priority": 1
+        }
+    ]
+}

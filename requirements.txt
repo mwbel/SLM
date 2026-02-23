@@ -4,7 +4,7 @@ transformers>=4.35.0
 accelerate>=0.24.0
 
 # Training optimization
-unsloth
+peft>=0.18.0
 bitsandbytes>=0.41.0
 
 # UI framework
@@ -15,9 +15,10 @@ pandas>=2.0.0
 openpyxl>=3.1.0
 PyMuPDF>=1.23.0
 pdfminer.six>=20221105
+datasets>=4.0.0
 
 # AI API
-google-generativeai>=0.3.0
+google-genai>=1.0.0
 
 # Utilities
 tqdm>=4.65.0

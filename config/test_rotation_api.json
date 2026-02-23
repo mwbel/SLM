@@ -1,0 +1,16 @@
+{
+    "gemini": [
+        {
+            "api_key": "key-1",
+            "model": "gemini-1.5-flash",
+            "name": "Gemini-Account-1",
+            "priority": 1
+        },
+        {
+            "api_key": "key-2",
+            "model": "gemini-1.5-flash",
+            "name": "Gemini-Account-2",
+            "priority": 1
+        }
+    ]
+}

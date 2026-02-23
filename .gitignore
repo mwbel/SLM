@@ -22,3 +22,4 @@ outputs/*
 # System
 .DS_Store
 *.log
+~

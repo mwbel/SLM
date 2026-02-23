@@ -1,0 +1,8 @@
+{
+  "source_file": "test_policy.md",
+  "total_chunks": 1,
+  "last_processed_chunk": -1,
+  "total_qa_pairs": 0,
+  "last_error": "404 models/gemini-2.0-flash-exp is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.",
+  "timestamp": "2026-02-23T17:17:21.734410"
+}

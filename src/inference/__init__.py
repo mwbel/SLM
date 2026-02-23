@@ -1,5 +1,5 @@
 """推理模块"""
 
-from .inference import InferenceEngine
+from .inferencer import ModelInferencer
 
-__all__ = ['InferenceEngine']
+__all__ = ["ModelInferencer"]

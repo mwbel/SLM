@@ -172,10 +172,59 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
                     raise Exception(f"所有API密钥配额已用完: {re}")
             else:
                 raise Exception(f"API配额已用完: {e}")
+        # 检查是否是上下文过长错误
+        elif "context" in error_msg and ("too long" in error_msg or "length" in error_msg or "exceed" in error_msg):
+            print(f"⚠️ 检测到上下文过长错误，将切换到智谱AI处理...")
+            raise Exception(f"CONTEXT_TOO_LONG: {e}")
         else:
             if rotator:
                 rotator.mark_error(str(e))
             raise Exception(f"Gemini API调用失败: {e}")
+
+
+def split_text_into_chunks(text: str, chunk_size: int = 15000, overlap: int = 500) -> List[str]:
+    """
+    将长文本分割成多个块，用于处理超长文档
+
+    Args:
+        text: 输入文本
+        chunk_size: 每块的字符数（默认15000字符，约10-15页）
+        overlap: 块之间的重叠字符数（默认500，避免知识点被截断）
+
+    Returns:
+        文本块列表
+    """
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + chunk_size
+
+        # 如果不是最后一块，尝试在句号、问号、感叹号处分割
+        if end < len(text):
+            # 在chunk_size附近寻找合适的分割点
+            search_start = max(start + chunk_size - 200, start)
+            search_end = min(start + chunk_size + 200, len(text))
+            search_text = text[search_start:search_end]
+
+            # 寻找句子结束标记
+            for delimiter in ['。\n', '。', '！', '？', '\n\n']:
+                pos = search_text.rfind(delimiter)
+                if pos != -1:
+                    end = search_start + pos + len(delimiter)
+                    break
+
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        # 下一块从当前块结束前overlap个字符开始
+        start = end - overlap if end < len(text) else end
+
+    return chunks
 
 
 def save_as_jsonl(data: List[Dict], output_path: str) -> str:
@@ -207,7 +256,7 @@ def save_as_jsonl(data: List[Dict], output_path: str) -> str:
 class DataDistiller:
     """数据蒸馏器 - 完整的蒸馏流程"""
 
-    def __init__(self, api_key: str = None, api_keys: List[str] = None, use_rotation: bool = True):
+    def __init__(self, api_key: str = None, api_keys: List[str] = None, use_rotation: bool = True, zhipu_api_key: str = None):
         """
         初始化数据蒸馏器
 
@@ -215,8 +264,10 @@ class DataDistiller:
             api_key: 单个Gemini API密钥（如果不使用轮换）
             api_keys: 多个API密钥列表（用于轮换）
             use_rotation: 是否使用密钥轮换（默认True）
+            zhipu_api_key: 智谱AI API密钥（用于处理上下文过长的情况）
         """
         self.use_rotation = use_rotation
+        self.zhipu_api_key = zhipu_api_key or "0608bfac12ae33755667214aa6d00657.oljJQXnYGuGGF6pf"
 
         if use_rotation:
             if api_keys:
@@ -257,17 +308,105 @@ class DataDistiller:
 
         # 2. 知识蒸馏
         print(f"正在使用Gemini进行知识蒸馏...")
-        if self.use_rotation:
-            distilled_data = distill_with_gemini(text, None, num_pairs, self.rotator)
-        else:
-            distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
-        print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
+        try:
+            if self.use_rotation:
+                distilled_data = distill_with_gemini(text, None, num_pairs, self.rotator)
+            else:
+                distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
+            print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
+        except Exception as e:
+            # 检查是否是上下文过长错误
+            if "CONTEXT_TOO_LONG" in str(e):
+                print(f"⚠️ Gemini上下文过长，切换到智谱AI...")
+                from utils.zhipu_client import distill_with_zhipu
+                distilled_data = distill_with_zhipu(text, self.zhipu_api_key, num_pairs)
+                print(f"✅ 智谱AI蒸馏完成，生成 {len(distilled_data)} 组对话对")
+            else:
+                raise
 
         # 3. 保存为JSONL
         input_filename = Path(file_path).stem
         output_path = Path(output_dir) / f"{input_filename}_distilled.jsonl"
         saved_path = save_as_jsonl(distilled_data, str(output_path))
         print(f"已保存到: {saved_path}")
+
+        return saved_path
+
+    def process_file_chunked(
+        self,
+        file_path: str,
+        output_dir: str = "data",
+        num_pairs_per_chunk: int = 30,
+        chunk_size: int = 15000,
+        overlap: int = 500
+    ) -> str:
+        """
+        分块处理大文件的完整蒸馏流程（适用于100+页的长文档）
+
+        Args:
+            file_path: 输入文件路径
+            output_dir: 输出目录（默认data/）
+            num_pairs_per_chunk: 每个块生成的对话对数量（默认30）
+            chunk_size: 每块的字符数（默认15000字符，约10-15页）
+            overlap: 块之间的重叠字符数（默认500）
+
+        Returns:
+            输出JSONL文件路径
+        """
+        # 1. 提取文本
+        print(f"📄 正在提取文本: {file_path}")
+        text = extract_text(file_path)
+        print(f"✅ 提取完成，文本长度: {len(text)} 字符")
+
+        # 2. 分块
+        print(f"✂️  正在分割文本...")
+        chunks = split_text_into_chunks(text, chunk_size=chunk_size, overlap=overlap)
+        print(f"✅ 分割完成，共 {len(chunks)} 个块")
+        print(f"   预计生成 {len(chunks) * num_pairs_per_chunk} 组对话对")
+
+        # 3. 逐块蒸馏
+        all_distilled_data = []
+        for i, chunk in enumerate(chunks, 1):
+            print(f"\n🔄 处理第 {i}/{len(chunks)} 块 (长度: {len(chunk)} 字符)...")
+
+            try:
+                if self.use_rotation:
+                    chunk_data = distill_with_gemini(chunk, None, num_pairs_per_chunk, self.rotator)
+                else:
+                    chunk_data = distill_with_gemini(chunk, self.api_key, num_pairs_per_chunk)
+
+                print(f"   ✅ 第 {i} 块完成，生成 {len(chunk_data)} 组对话对")
+                all_distilled_data.extend(chunk_data)
+
+            except Exception as e:
+                # 检查是否是上下文过长错误
+                if "CONTEXT_TOO_LONG" in str(e):
+                    print(f"   ⚠️ Gemini上下文过长，切换到智谱AI...")
+                    try:
+                        from utils.zhipu_client import distill_with_zhipu
+                        chunk_data = distill_with_zhipu(chunk, self.zhipu_api_key, num_pairs_per_chunk)
+                        print(f"   ✅ 智谱AI处理完成，生成 {len(chunk_data)} 组对话对")
+                        all_distilled_data.extend(chunk_data)
+                    except Exception as zhipu_error:
+                        print(f"   ❌ 第 {i} 块处理失败: {zhipu_error}")
+                        continue
+                else:
+                    print(f"   ❌ 第 {i} 块处理失败: {e}")
+                    continue
+
+        # 4. 保存为JSONL
+        print(f"\n💾 正在保存结果...")
+        input_filename = Path(file_path).stem
+        output_path = Path(output_dir) / f"{input_filename}_distilled_chunked.jsonl"
+        saved_path = save_as_jsonl(all_distilled_data, str(output_path))
+
+        print(f"\n{'='*60}")
+        print(f"✅ 蒸馏完成！")
+        print(f"   文件: {file_path}")
+        print(f"   输出: {saved_path}")
+        print(f"   总块数: {len(chunks)}")
+        print(f"   生成对话对: {len(all_distilled_data)} 组")
+        print(f"{'='*60}")
 
         return saved_path
 
