@@ -172,10 +172,38 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
                     raise Exception(f"所有API密钥配额已用完: {re}")
             else:
                 raise Exception(f"API配额已用完: {e}")
+        # 检查是否是权限/密钥错误（密钥泄漏/无效/被禁用）
+        elif (
+            "permission_denied" in error_msg
+            or "invalid_argument" in error_msg
+            or ("key" in error_msg and ("leaked" in error_msg or "not valid" in error_msg or "invalid" in error_msg))
+            or "403" in error_msg
+            or "400" in error_msg
+        ):
+            if rotator:
+                print(f"⚠️ 检测到API密钥问题（泄漏/无效/被禁用），尝试切换...")
+                try:
+                    # 标记为不可用并切换
+                    new_key = rotator.mark_quota_exceeded()
+                    return distill_with_gemini(text, new_key, num_pairs, rotator)
+                except RuntimeError as re:
+                    # 所有密钥都不可用，切换到智谱AI
+                    print(f"⚠️ 所有Gemini密钥都已失效，将切换到智谱AI处理...")
+                    raise Exception(f"ALL_KEYS_EXHAUSTED: {re}")
+            else:
+                # 单密钥模式下直接切换到智谱AI
+                print(f"⚠️ Gemini密钥失效，将切换到智谱AI处理...")
+                raise Exception(f"PERMISSION_DENIED: {e}")
         # 检查是否是上下文过长错误
         elif "context" in error_msg and ("too long" in error_msg or "length" in error_msg or "exceed" in error_msg):
             print(f"⚠️ 检测到上下文过长错误，将切换到智谱AI处理...")
             raise Exception(f"CONTEXT_TOO_LONG: {e}")
+        # 检查是否是网络超时/连接错误
+        elif "timed out" in error_msg or "connection" in error_msg or "errno 60" in error_msg or "socket" in error_msg:
+            print(f"⚠️ 检测到网络连接问题，将切换到智谱AI处理...")
+            if not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"):
+                print("   💡 提示: 如果您在中国大陆，请确保已配置 HTTP_PROXY 或 HTTPS_PROXY 环境变量以访问 Gemini API。")
+            raise Exception(f"NETWORK_ERROR: {e}")
         else:
             if rotator:
                 rotator.mark_error(str(e))
@@ -276,7 +304,10 @@ class DataDistiller:
                 # 使用默认密钥列表
                 from utils.api_key_rotator import create_default_rotator
                 self.rotator = create_default_rotator(cooldown_minutes=60)
-                print(f"使用默认API密钥池，共 {len(self.rotator.api_keys)} 个密钥")
+                if self.rotator:
+                    print(f"使用默认API密钥池，共 {len(self.rotator.api_keys)} 个密钥")
+                else:
+                    print(f"⚠️ 未配置Gemini API密钥，将直接使用智谱AI")
             self.api_key = None
         else:
             if not api_key:
@@ -309,15 +340,29 @@ class DataDistiller:
         # 2. 知识蒸馏
         print(f"正在使用Gemini进行知识蒸馏...")
         try:
-            if self.use_rotation:
+            # 如果没有配置Gemini密钥，直接使用智谱AI
+            if self.use_rotation and not self.rotator:
+                print(f"⚠️ 未配置Gemini密钥，直接使用智谱AI (GLM-4-Flash)...")
+                from utils.zhipu_client import distill_with_zhipu
+                distilled_data = distill_with_zhipu(text, self.zhipu_api_key, num_pairs)
+                print(f"✅ 智谱AI蒸馏完成，生成 {len(distilled_data)} 组对话对")
+            elif self.use_rotation:
                 distilled_data = distill_with_gemini(text, None, num_pairs, self.rotator)
+                print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
             else:
                 distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
-            print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
+                print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
         except Exception as e:
-            # 检查是否是上下文过长错误
-            if "CONTEXT_TOO_LONG" in str(e):
-                print(f"⚠️ Gemini上下文过长，切换到智谱AI...")
+            error_str = str(e)
+            # 检查是否是上下文过长错误或网络错误或密钥失效
+            if "CONTEXT_TOO_LONG" in error_str or "NETWORK_ERROR" in error_str or "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+                if "NETWORK_ERROR" in error_str:
+                    print(f"⚠️ Gemini连接失败，自动切换到智谱AI (GLM-4-Flash)...")
+                elif "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+                    print(f"⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)...")
+                else:
+                    print(f"⚠️ Gemini上下文过长，切换到智谱AI (GLM-4-Flash)...")
+                
                 from utils.zhipu_client import distill_with_zhipu
                 distilled_data = distill_with_zhipu(text, self.zhipu_api_key, num_pairs)
                 print(f"✅ 智谱AI蒸馏完成，生成 {len(distilled_data)} 组对话对")
@@ -379,16 +424,23 @@ class DataDistiller:
                 all_distilled_data.extend(chunk_data)
 
             except Exception as e:
-                # 检查是否是上下文过长错误
-                if "CONTEXT_TOO_LONG" in str(e):
-                    print(f"   ⚠️ Gemini上下文过长，切换到智谱AI...")
+                error_str = str(e)
+                # 检查是否是上下文过长错误或网络错误或密钥失效
+                if "CONTEXT_TOO_LONG" in error_str or "NETWORK_ERROR" in error_str or "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+                    if "NETWORK_ERROR" in error_str:
+                        print(f"   ⚠️ Gemini连接失败，自动切换到智谱AI (GLM-4-Flash)...")
+                    elif "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+                        print(f"   ⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)...")
+                    else:
+                        print(f"   ⚠️ Gemini上下文过长，切换到智谱AI (GLM-4-Flash)...")
+                    
                     try:
                         from utils.zhipu_client import distill_with_zhipu
                         chunk_data = distill_with_zhipu(chunk, self.zhipu_api_key, num_pairs_per_chunk)
                         print(f"   ✅ 智谱AI处理完成，生成 {len(chunk_data)} 组对话对")
                         all_distilled_data.extend(chunk_data)
                     except Exception as zhipu_error:
-                        print(f"   ❌ 第 {i} 块处理失败: {zhipu_error}")
+                        print(f"   ❌ 第 {i} 块处理失败 (智谱AI): {zhipu_error}")
                         continue
                 else:
                     print(f"   ❌ 第 {i} 块处理失败: {e}")

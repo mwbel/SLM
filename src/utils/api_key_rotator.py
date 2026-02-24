@@ -170,21 +170,36 @@ class APIKeyRotator:
         print("所有API密钥状态已重置")
 
 
-# 预配置的密钥列表
-DEFAULT_API_KEYS = [
-    "AIzaSyBxsxg8_9gUOrtcJ-4lmxsOo9EeKznFzJs",
-    "AIzaSyDGG3Q5i38wBQN9u6NYg-ComiiTnZwfD5g",
-    "AIzaSyDaNZ9XAyTl3lS-KWMaw56_6Xm0Wvh2o_A",
-    "AIzaSyArbeS4AcbCcrJxijBfvpqbFgfD2fRWVLw",
-    "AIzaSyCCKMmK-PC278b8E4B6O9ug10RGZ1PIpAU",
-    "AIzaSyDNMScHEMLZSGMWpBQ9HOQPUWnLf2gDjzU",
-    "AIzaSyAU3B5coLYWQnlCjOwZg0JQQj7K5sw8q80",
-    "AIzaSyA6_9MBfmKHGbH7OI0GV5FiV0N8Mh8o1GY",
-    "AIzaSyA2oPOk-nJMJDlc0jVvOTN1fhzW45pzt9w"
-]
+# 预配置的密钥列表 - 从环境变量或配置文件读取
+# 不要在代码中硬编码API密钥！
+import os
+
+DEFAULT_API_KEYS = []
+
+# 尝试从环境变量读取
+env_keys = os.environ.get('GEMINI_API_KEYS', '')
+if env_keys:
+    DEFAULT_API_KEYS = [key.strip() for key in env_keys.split(',') if key.strip()]
+
+# 如果环境变量没有配置，尝试从配置文件读取
+if not DEFAULT_API_KEYS:
+    try:
+        import json
+        from pathlib import Path
+        config_file = Path(__file__).parent.parent.parent / 'config' / 'api_keys.json'
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                DEFAULT_API_KEYS = config.get('gemini_keys', [])
+    except Exception:
+        pass
+
+# 如果都没有配置，使用空列表（将直接使用智谱AI）
+if not DEFAULT_API_KEYS:
+    DEFAULT_API_KEYS = []
 
 
-def create_default_rotator(cooldown_minutes: int = 60) -> APIKeyRotator:
+def create_default_rotator(cooldown_minutes: int = 60) -> Optional[APIKeyRotator]:
     """
     创建使用默认密钥列表的轮换器
 
@@ -192,8 +207,10 @@ def create_default_rotator(cooldown_minutes: int = 60) -> APIKeyRotator:
         cooldown_minutes: 冷却时间（分钟）
 
     Returns:
-        配置好的APIKeyRotator实例
+        配置好的APIKeyRotator实例，如果没有配置密钥则返回None
     """
+    if not DEFAULT_API_KEYS:
+        return None
     return APIKeyRotator(DEFAULT_API_KEYS, cooldown_minutes)
 
 

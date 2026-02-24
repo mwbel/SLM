@@ -1,0 +1,8 @@
+{
+  "gemini_keys": [
+    "your-gemini-api-key-1",
+    "your-gemini-api-key-2",
+    "your-gemini-api-key-3"
+  ],
+  "zhipu_key": "your-zhipu-api-key"
+}
