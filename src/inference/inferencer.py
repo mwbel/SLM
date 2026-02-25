@@ -10,7 +10,7 @@ import platform
 class ModelInferencer:
     """模型推理器 - 用于加载和推理训练好的模型"""
 
-    def __init__(self, model_path: str, base_model: str = "Qwen/Qwen2.5-0.5B"):
+    def __init__(self, model_path: str, base_model: str = "models/Qwen/Qwen2.5-1.5B"):
         """
         初始化推理器
 
@@ -59,19 +59,26 @@ class ModelInferencer:
         if not self.model_path.exists():
             raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
 
-        # 尝试从ModelScope缓存加载基座模型
-        modelscope_path = Path.home() / ".cache/modelscope" / self.base_model
-        if modelscope_path.exists():
+        # 智能检测基座模型路径
+        # 1. 首先检查是否是本地路径
+        local_path = Path(self.base_model)
+        if local_path.exists():
+            print(f"使用本地基座模型: {local_path.absolute()}")
+            base_model_path = str(local_path.absolute())
+        # 2. 检查ModelScope缓存
+        elif (Path.home() / ".cache/modelscope" / self.base_model).exists():
+            modelscope_path = Path.home() / ".cache/modelscope" / self.base_model
             print(f"从ModelScope缓存加载基座模型: {modelscope_path}")
             base_model_path = str(modelscope_path)
         else:
-            print(f"从HuggingFace加载基座模型: {self.base_model}")
+            print(f"⚠️  本地模型不存在，尝试从HuggingFace下载: {self.base_model}")
             base_model_path = self.base_model
 
         # 加载tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             base_model_path,
-            trust_remote_code=False
+            trust_remote_code=False,
+            local_files_only=True  # 强制使用本地文件
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -82,6 +89,7 @@ class ModelInferencer:
             torch_dtype=torch.float32 if self.device == "cpu" else torch.float16,
             device_map="auto" if self.device != "cpu" else None,
             trust_remote_code=False,
+            local_files_only=True,  # 强制使用本地文件
         )
 
         # 加载LoRA权重

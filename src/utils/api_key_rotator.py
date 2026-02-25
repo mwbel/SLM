@@ -170,33 +170,42 @@ class APIKeyRotator:
         print("所有API密钥状态已重置")
 
 
-# 预配置的密钥列表 - 从环境变量或配置文件读取
-# 不要在代码中硬编码API密钥！
+# 预配置的密钥列表 - 从环境变量读取
+# 优先使用环境变量，不再从配置文件读取以避免API密钥泄露
 import os
 
 DEFAULT_API_KEYS = []
 
-# 尝试从环境变量读取
-env_keys = os.environ.get('GEMINI_API_KEYS', '')
-if env_keys:
-    DEFAULT_API_KEYS = [key.strip() for key in env_keys.split(',') if key.strip()]
+# 从环境变量读取 API keys（支持多种格式）
+def _load_gemini_keys_from_env():
+    """从环境变量加载 Gemini API keys"""
+    keys = []
 
-# 如果环境变量没有配置，尝试从配置文件读取
-if not DEFAULT_API_KEYS:
-    try:
-        import json
-        from pathlib import Path
-        config_file = Path(__file__).parent.parent.parent / 'config' / 'api_keys.json'
-        if config_file.exists():
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-                DEFAULT_API_KEYS = config.get('gemini_keys', [])
-    except Exception:
-        pass
+    # 方式1: GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...
+    i = 1
+    while True:
+        key = os.environ.get(f'GEMINI_API_KEY_{i}')
+        if key:
+            keys.append(key.strip())
+            i += 1
+        else:
+            break
 
-# 如果都没有配置，使用空列表（将直接使用智谱AI）
-if not DEFAULT_API_KEYS:
-    DEFAULT_API_KEYS = []
+    # 方式2: GEMINI_API_KEYS (逗号分隔)
+    if not keys:
+        env_keys = os.environ.get('GEMINI_API_KEYS', '')
+        if env_keys:
+            keys = [k.strip() for k in env_keys.split(',') if k.strip()]
+
+    # 方式3: 单个 GEMINI_API_KEY
+    if not keys:
+        single_key = os.environ.get('GEMINI_API_KEY', '')
+        if single_key:
+            keys = [single_key.strip()]
+
+    return keys
+
+DEFAULT_API_KEYS = _load_gemini_keys_from_env()
 
 
 def create_default_rotator(cooldown_minutes: int = 60) -> Optional[APIKeyRotator]:

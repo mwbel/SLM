@@ -1,0 +1,27 @@
+# SLM Trainer Configuration
+
+# Model settings
+model:
+  base_model: "models/Qwen/Qwen2.5-0.5B"  # 本地模型路径（ModelScope下载）
+  # base_model: "Qwen/Qwen2.5-0.5B"  # 或者使用HuggingFace ID（需要网络）
+  max_seq_length: 512  # 减小序列长度以节省内存
+
+# LoRA settings
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+
+# Training settings
+training:
+  batch_size: 1  # 减小batch size以节省内存
+  learning_rate: 0.0002
+  num_epochs: 3
+  warmup_steps: 10
+  gradient_accumulation_steps: 4  # 使用梯度累积来补偿小batch size
+
+# Paths
+paths:
+  data_dir: "./data"
+  model_dir: "./models"
+  output_dir: "./outputs"

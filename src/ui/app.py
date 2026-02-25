@@ -43,11 +43,12 @@ def list_directories(directory):
 
 
 BASE_MODELS = [
-    "Qwen/Qwen2.5-0.5B",
-    "Qwen/Qwen2.5-1.5B",
+    "models/Qwen/Qwen2.5-1.5B",  # 升级到1.5B（推荐）
+    "models/Qwen/Qwen2.5-3B",    # 更大模型（如需更高精度）
+    "models/Qwen/Qwen2.5-0.5B",  # 轻量级（如需更快速度）
+    "Qwen/Qwen2.5-1.5B",         # HuggingFace备用
     "Qwen/Qwen2.5-3B",
-    "Qwen/Qwen2.5-7B",
-    "Qwen/Qwen2.5-14B",
+    "Qwen/Qwen2.5-0.5B",
 ]
 
 
@@ -340,7 +341,7 @@ def create_ui():
                     model_name_input = gr.Dropdown(
                         label="基座模型",
                         choices=BASE_MODELS,
-                        value="Qwen/Qwen2.5-0.5B",
+                        value="models/Qwen/Qwen2.5-1.5B",  # 更新为1.5B
                         allow_custom_value=True,
                         interactive=True,
                     )
@@ -389,7 +390,7 @@ def create_ui():
                         model_path_input = gr.Dropdown(
                             label="模型路径",
                             choices=list_directories(OUTPUTS_DIR),
-                            value=str(OUTPUTS_DIR / "reimbursement_model"),
+                            value=str(OUTPUTS_DIR / "trained_model"),
                             allow_custom_value=True,
                             interactive=True,
                             scale=3,
@@ -399,7 +400,7 @@ def create_ui():
                     base_model_input = gr.Dropdown(
                         label="基座模型",
                         choices=BASE_MODELS,
-                        value="Qwen/Qwen2.5-0.5B",
+                        value="models/Qwen/Qwen2.5-1.5B",  # 更新为1.5B
                         allow_custom_value=True,
                         interactive=True,
                     )

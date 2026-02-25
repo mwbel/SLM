@@ -1,58 +1,11 @@
 {
   "gemini": [
     {
-      "api_key": "AIzaSyBxsxg8_9gUOrtcJ-4lmxsOo9EeKznFzJs",
-      "model": "gemini-1.5-flash",
+      "api_key": "YOUR_GEMINI_API_KEY_1",
+      "model": "gemini-2.5-flash",
       "name": "Gemini-Account-1",
       "priority": 1
-    },
-    {
-      "api_key": "AIzaSyDGG3Q5i38wBQN9u6NYg-ComiiTnZwfD5g",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-2",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyDaNZ9XAyTl3lS-KWMaw56_6Xm0Wvh2o_A",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-3",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyArbeS4AcbCcrJxijBfvpqbFgfD2fRWVLw",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-4",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyCCKMmK-PC278b8E4B6O9ug10RGZ1PIpAU",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-5",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyDNMScHEMLZSGMWpBQ9HOQPUWnLf2gDjzU",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-6",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyAU3B5coLYWQnlCjOwZg0JQQj7K5sw8q80",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-7",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyA6_9MBfmKHGbH7OI0GV5FiV0N8Mh8o1GY",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-8",
-      "priority": 1
-    },
-    {
-      "api_key": "AIzaSyA2oPOk-nJMJDlc0jVvOTN1fhzW45pzt9w",
-      "model": "gemini-1.5-flash",
-      "name": "Gemini-Account-9",
-      "priority": 1
     }
-  ]
+  ],
+  "_comment": "请使用环境变量来配置 API keys，不要在配置文件中硬编码！支持的环境变量格式：GEMINI_API_KEY_1, GEMINI_API_KEY_2, ... 或 GEMINI_API_KEYS（逗号分隔）"
 }

@@ -17,13 +17,19 @@ class Trainer:
         self.model_name = model_name
         self.config = config
 
-        # 尝试从ModelScope缓存加载模型
-        modelscope_path = Path.home() / ".cache/modelscope" / model_name
-        if modelscope_path.exists():
+        # 尝试从本地路径加载模型
+        # 1. 检查是否是相对路径（如 models/Qwen/...）
+        local_path = Path(model_name)
+        if local_path.exists():
+            print(f"✅ 使用本地模型: {local_path.absolute()}")
+            model_path = str(local_path.absolute())
+        # 2. 检查ModelScope缓存
+        elif (Path.home() / ".cache/modelscope" / model_name).exists():
+            modelscope_path = Path.home() / ".cache/modelscope" / model_name
             print(f"✅ 从ModelScope缓存加载模型: {modelscope_path}")
             model_path = str(modelscope_path)
         else:
-            print(f"⚠️  ModelScope缓存不存在，尝试从HuggingFace下载")
+            print(f"⚠️  本地模型不存在，尝试从HuggingFace下载")
             model_path = model_name
 
         # 设置环境变量优先使用ModelScope
@@ -57,6 +63,7 @@ class Trainer:
                 quantization_config=bnb_config,
                 device_map="auto",
                 trust_remote_code=False,
+                local_files_only=True,  # 强制使用本地文件
             )
         else:
             # 非量化模式（MPS或CPU）
@@ -65,10 +72,13 @@ class Trainer:
                 torch_dtype=torch.float32,
                 device_map=device_info["device_map"],
                 trust_remote_code=False,
+                local_files_only=True,  # 强制使用本地文件
             )
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path, trust_remote_code=False
+            model_path,
+            trust_remote_code=False,
+            local_files_only=True  # 强制使用本地文件
         )
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -148,8 +158,16 @@ class Trainer:
                 return_tensors=None,
             )
 
-            # 对于因果语言模型，标签就是输入ID
-            tokenized["labels"] = tokenized["input_ids"].copy()
+            # 创建labels：只训练"回答"部分，将"问题"部分设为-100
+            labels = tokenized["input_ids"].copy()
+
+            # 找到"回答："的位置
+            prompt_length = len(self.tokenizer(f"问题：{instruction}\n回答：", add_special_tokens=False)["input_ids"])
+
+            # 将问题部分的labels设为-100（PyTorch会忽略这些位置的loss）
+            labels[:prompt_length] = [-100] * prompt_length
+
+            tokenized["labels"] = labels
 
             return tokenized
 
