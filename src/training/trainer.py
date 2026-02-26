@@ -67,9 +67,12 @@ class Trainer:
             )
         else:
             # 非量化模式（MPS或CPU）
+            # MPS需要使用float16，CPU使用float32
+            dtype = torch.float16 if device_info['device_type'] == 'mps' else torch.float32
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_path,
-                torch_dtype=torch.float32,
+                torch_dtype=dtype,
                 device_map=device_info["device_map"],
                 trust_remote_code=False,
                 local_files_only=True,  # 强制使用本地文件

@@ -59,6 +59,14 @@ class ModelInferencer:
         if not self.model_path.exists():
             raise FileNotFoundError(f"模型路径不存在: {self.model_path}")
 
+        # 禁用tqdm进度条以避免在Gradio上下文中出现BrokenPipeError
+        import os
+        disable_tqdm = os.environ.get('DISABLE_TQDM', '1')  # 默认禁用
+
+        from transformers import utils
+        utils.logging.set_verbosity_error()  # 禁用详细日志
+        os.environ['TRANSFORMERS_NO_PROGRESS_BAR'] = '1'  # 禁用进度条
+
         # 智能检测基座模型路径
         # 1. 首先检查是否是本地路径
         local_path = Path(self.base_model)
@@ -183,34 +191,31 @@ class ModelInferencer:
 
     def chat(self, message: str, history: list = None) -> tuple:
         """
-        对话接口（兼容Gradio）- 支持多轮对话上下文
+        对话接口（兼容Gradio）
+
+        注意：对于财务报销规则等独立问题，不使用多轮对话上下文
+        这样可以避免上下文截断问题，并保持与评估脚本一致的行为
 
         Args:
             message: 用户消息
-            history: 对话历史
+            history: 对话历史（保留用于UI显示，但不用于推理）
 
         Returns:
-            (回复, 更新后的历史)
+            更新后的历史
         """
         if history is None:
             history = []
 
-        # 构建包含历史的上下文提示
-        context_prompt = ""
-
-        # 添加历史对话（最多保留最近3轮对话，避免上下文过长）
-        recent_history = history[-6:] if len(history) > 6 else history
-        for msg in recent_history:
-            if msg["role"] == "user":
-                context_prompt += f"问题：{msg['content']}\n"
-            elif msg["role"] == "assistant":
-                context_prompt += f"回答：{msg['content']}\n"
-
-        # 添加当前问题
-        context_prompt += f"问题：{message}\n回答："
-
-        # 生成回复（使用包含上下文的提示，不再添加格式）
-        response = self.generate(context_prompt, add_prompt_format=False)
+        # 直接使用当前问题生成回复（不使用历史上下文）
+        # 使用与评估脚本相同的参数
+        response = self.generate(
+            message,
+            max_new_tokens=300,  # 与评估脚本一致
+            temperature=0.1,     # 与评估脚本一致
+            top_p=0.95,          # 与评估脚本一致
+            repetition_penalty=1.0,  # 与评估脚本一致
+            add_prompt_format=True  # 使用"问题：回答："格式
+        )
 
         # 更新历史
         history.append({"role": "user", "content": message})

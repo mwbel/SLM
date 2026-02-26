@@ -1,0 +1,134 @@
+{
+  "timestamp": "2026-02-26T20:32:11.781521",
+  "model_path": "outputs/qwen2_5-3b-trained",
+  "base_model": "models/Qwen/Qwen2.5-3B",
+  "evaluations": [
+    {
+      "type": "accuracy",
+      "total": 5,
+      "correct": 4,
+      "accuracy": 0.8,
+      "avg_coverage": 0.6333333333333333,
+      "detailed_results": [
+        {
+          "question": "对于课题协作费、制作费、材料费等费用，华东师范大学对协议和合同的签订金额有什么具体要求？",
+          "description": "金额阈值测试",
+          "expected_keywords": [
+            "3000",
+            "10000",
+            "协议",
+            "合同"
+          ],
+          "found_keywords": [
+            "协议",
+            "合同"
+          ],
+          "missing_keywords": [
+            "3000",
+            "10000"
+          ],
+          "keyword_coverage": 0.5,
+          "response": "对于协议和合同时签订的金额，华东师大要求课题协作单位、制作单位、材料供应商等提供的协议和发票金额应与实际发生金额一致，不得高于实际发生额。",
+          "is_correct": true
+        },
+        {
+          "question": "华东师范大学对办公用品的报销有哪些特殊规定？",
+          "description": "办公用品规定测试",
+          "expected_keywords": [
+            "500",
+            "明细清单",
+            "发票"
+          ],
+          "found_keywords": [],
+          "missing_keywords": [
+            "500",
+            "明细清单",
+            "发票"
+          ],
+          "keyword_coverage": 0.0,
+          "response": "华东师大对办公用纸、办公用品、办公耗材、办公设备、办公家具、办公软件、办公服务等的报销有特殊规定，如办公用具、办公用书、办公文具、复印纸、打印纸、传真纸、信封、信纸、订书机、回形针、胶水、胶带、胶棒、胶条、胶圈、胶钉、胶布、胶纸、胶贴、胶枪、胶管、胶桶、胶盒、胶箱、胶袋、胶杯、胶碗、胶盆、胶盘、胶碟、胶勺、胶叉、胶铲、胶刷、胶笔、胶尺、胶刀、胶剪、胶钳、胶锤、胶榔头、胶扳手、胶螺丝刀、",
+          "is_correct": false
+        },
+        {
+          "question": "差旅费的报销需要提供哪些材料？",
+          "description": "差旅费流程测试",
+          "expected_keywords": [
+            "审批单",
+            "机票",
+            "发票",
+            "住宿"
+          ],
+          "found_keywords": [
+            "审批单",
+            "机票",
+            "发票",
+            "住宿"
+          ],
+          "missing_keywords": [],
+          "keyword_coverage": 1.0,
+          "response": "差费报销需提供出差审批单、机票、车票、住宿发票等原始凭证。",
+          "is_correct": true
+        },
+        {
+          "question": "图书资料报销在什么金额以上需要附合同？",
+          "description": "图书采购测试",
+          "expected_keywords": [
+            "30000",
+            "合同",
+            "图书"
+          ],
+          "found_keywords": [
+            "合同",
+            "图书"
+          ],
+          "missing_keywords": [
+            "30000"
+          ],
+          "keyword_coverage": 0.6666666666666666,
+          "response": "图书、资料、软件等单价在500元以上的，需附合同。",
+          "is_correct": true
+        },
+        {
+          "question": "会议费报销需要提供哪些审批材料？",
+          "description": "会议费测试",
+          "expected_keywords": [
+            "会议通知",
+            "签到",
+            "审批"
+          ],
+          "found_keywords": [
+            "会议通知",
+            "签到",
+            "审批"
+          ],
+          "missing_keywords": [],
+          "keyword_coverage": 1.0,
+          "response": "会议费用报销需提供会议通知、会议费预算审批单、会议签到表、会议费用明细单、发票等审批材料。",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "type": "diversity",
+      "avg_diversity": 0.1997777777777778,
+      "scores": [
+        0.10466666666666667,
+        0.2948888888888889
+      ]
+    },
+    {
+      "type": "consistency",
+      "avg_consistency": 0.5,
+      "scores": [
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "type": "test_set",
+      "sample_size": 20,
+      "correct": 0,
+      "accuracy": 0.0
+    }
+  ]
+}

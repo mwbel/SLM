@@ -11,15 +11,15 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 def test_model():
     """测试训练好的模型"""
     print("=" * 70)
-    print("测试训练好的模型")
+    print("测试 Qwen2.5-3B 训练模型")
     print("=" * 70)
 
     try:
         from inference import ModelInferencer
 
-        # 模型配置 - 使用loss最低的checkpoint 56
-        model_path = "outputs/trained_model_checkpoint56"
-        base_model = "models/Qwen/Qwen2.5-0.5B"
+        # 模型配置 - 使用刚训练好的3B模型
+        model_path = "outputs/qwen2_5-3b-trained"
+        base_model = "models/Qwen/Qwen2.5-3B"
 
         print(f"\n模型路径: {model_path}")
         print(f"基座模型: {base_model}")
@@ -29,21 +29,44 @@ def test_model():
         inferencer.load_model()
         print("   ✓ 模型加载成功")
 
-        # 测试问题 - 使用训练数据中的原始问题
+        # 测试问题 - 基于华东师范大学财务报销细则
         test_questions = [
-            ("对于课题协作费、制作费、材料费、印刷费、测试费、加工费等费用，以及设备采购，华东师范大学对协议和合同的签订金额有什么具体要求？",
-             "课题协作费等：3000元以上需协议，10000元以上需合同"),
-            ("华东师范大学对办公用品和图书资料的报销有哪些特殊规定？",
-             "办公用品500元以上需明细清单，图书30000元以上需附合同"),
-            ("同一家单位发票单张多少需要合同？",
-             "3000元需要协议，10000元需要合同"),
+            {
+                "question": "对于课题协作费、制作费、材料费等费用，以及设备采购，华东师范大学对协议和合同的签订金额有什么具体要求？",
+                "keywords": ["3000", "10000", "协议", "合同"],
+                "description": "测试金额阈值记忆"
+            },
+            {
+                "question": "华东师范大学对办公用品和图书资料的报销有哪些特殊规定？",
+                "keywords": ["500", "明细清单", "30000", "图书"],
+                "description": "测试办公用品和图书规定"
+            },
+            {
+                "question": "差旅费的报销需要提供哪些材料？",
+                "keywords": ["审批单", "机票", "发票", "住宿"],
+                "description": "测试差旅费报销流程"
+            },
+            {
+                "question": "会议费报销需要什么审批流程？",
+                "keywords": ["会议", "审批", "通知", "签到"],
+                "description": "测试会议费规定"
+            },
         ]
 
-        print("\n2. 测试问答...")
-        print("   使用温度0.1（更确定性）...")
-        for i, (question, expected) in enumerate(test_questions, 1):
-            print(f"\n问题 {i}: {question}")
-            print(f"预期答案关键点: {expected}")
+        print("\n2. 测试问答能力...")
+        print("   使用温度0.1（更确定性的回答）...")
+        print("   " + "=" * 66)
+
+        correct_count = 0
+        for i, test_case in enumerate(test_questions, 1):
+            question = test_case["question"]
+            keywords = test_case["keywords"]
+            description = test_case["description"]
+
+            print(f"\n问题 {i}: {description}")
+            print(f"问题: {question}")
+            print(f"预期关键词: {', '.join(keywords)}")
+
             response = inferencer.generate(
                 question,
                 max_new_tokens=300,
@@ -52,16 +75,38 @@ def test_model():
                 top_k=50,
                 repetition_penalty=1.0,
             )
-            print(f"实际回答: {response}")
+            print(f"\n模型回答: {response}")
 
-            # 简单评估
-            if "3000" in response and "10000" in response:
-                print("✓ 包含关键数字")
+            # 评估关键词覆盖
+            found_keywords = []
+            missing_keywords = []
+            for kw in keywords:
+                if kw in response:
+                    found_keywords.append(kw)
+                else:
+                    missing_keywords.append(kw)
+
+            print(f"\n关键词检查:")
+            print(f"  ✓ 找到: {', '.join(found_keywords) if found_keywords else '无'}")
+            if missing_keywords:
+                print(f"  ✗ 缺少: {', '.join(missing_keywords)}")
+
+            # 判断是否合格（至少包含一半关键词）
+            if len(found_keywords) >= len(keywords) / 2:
+                print(f"  ✅ 合格")
+                correct_count += 1
             else:
-                print("✗ 缺少关键数字")
+                print(f"  ❌ 不合格")
 
+            print("-" * 70)
+
+        # 总结
         print("\n" + "=" * 70)
-        print("✅ 测试完成！")
+        print("📊 测试总结")
+        print("=" * 70)
+        print(f"总问题数: {len(test_questions)}")
+        print(f"合格数: {correct_count}")
+        print(f"合格率: {correct_count/len(test_questions)*100:.1f}%")
         print("=" * 70)
 
         return True

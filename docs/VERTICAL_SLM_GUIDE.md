@@ -1210,4 +1210,4 @@ python3 main.py
 
 **最后更新**: 2026-02-25
 **维护者**: Claude Code Team
-**联系方式**: [项目GitHub Issues]
+**联系方式**: [项目GitHub Issues]我

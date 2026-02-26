@@ -1,23 +1,24 @@
-# SLM Trainer Configuration - Qwen2.5-1.5B优化版
+# SLM Trainer Configuration - Qwen2.5-3B 优化版
 
 # Model settings
 model:
-  base_model: "models/Qwen/Qwen2.5-1.5B"  # 升级到1.5B模型（更强能力）
-  # base_model: "models/Qwen/Qwen2.5-0.5B"  # 回退到0.5B（如需要更小模型）
+  base_model: "models/Qwen/Qwen2.5-3B"  # 使用3B模型（更强能力）✅ 已下载
+  # base_model: "models/Qwen/Qwen2.5-1.5B"  # 回退到1.5B（如需要更小模型）
+  # base_model: "models/Qwen/Qwen2.5-0.5B"  # 回退到0.5B（最小模型）
   max_seq_length: 512  # 序列长度
 
-# LoRA settings
+# LoRA settings - 针对3B模型优化
 lora:
-  rank: 12         # 增加LoRA秩（从8到12）- 更强适配能力
-  alpha: 24        # 相应增加alpha（rank * 2）
+  rank: 16         # 增加LoRA秩（从12到16）- 3B模型需要更强的适配能力
+  alpha: 32        # 相应增加alpha（rank * 2）
   dropout: 0.05
 
-# Training settings - 优化版
+# Training settings - 3B模型优化版
 training:
   batch_size: 1  # 保持小batch size以节省内存
-  learning_rate: 0.0001  # 降低学习率（从0.0002）- 更稳定训练
-  num_epochs: 5          # 增加轮数（从3到5）- 充分学习
-  warmup_steps: 20        # 增加warmup步数（从10）
+  learning_rate: 0.00005  # 降低学习率（从0.0001到0.00005）- 3B模型需要更小的学习率
+  num_epochs: 3          # 3B模型过拟合风险高，减少轮数（从5到3）
+  warmup_steps: 30        # 增加warmup步数（从20到30）
   gradient_accumulation_steps: 4  # 有效批次大小 = 1×4 = 4
 
 # Paths
