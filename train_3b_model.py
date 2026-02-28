@@ -72,14 +72,18 @@ def main():
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
 
-    # 加载训练数据
-    data_path = Path(__file__).parent / "data" / "报销细则_distilled_chunked.jsonl"
+    # 加载训练数据（使用合并后的优化数据）
+    data_path = Path(__file__).parent / "data" / "报销细则_combined.jsonl"
 
     if not data_path.exists():
         print(f"\n❌ 错误: 找不到训练数据文件")
         print(f"   路径: {data_path}")
         print(f"   请先运行数据蒸馏生成训练数据")
         return False
+
+    print(f"\n📊 使用优化后的训练数据:")
+    print(f"   数据文件: {data_path.name}")
+    print(f"   包含原始863条 + 新生成298条（含数字类优化）")
 
     train_data = load_jsonl(str(data_path))
 

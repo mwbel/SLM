@@ -35,15 +35,16 @@ def extract_text(file_path: str) -> str:
 
     file_ext = file_path.suffix.lower()
 
-    if file_ext == '.txt':
+    if file_ext == ".txt":
         # 提取TXT文件
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
 
-    elif file_ext == '.pdf':
+    elif file_ext == ".pdf":
         # 提取PDF文件 - 使用PyMuPDF (fitz)
         try:
             import fitz  # PyMuPDF
+
             doc = fitz.open(file_path)
             text = ""
             for page in doc:
@@ -54,6 +55,7 @@ def extract_text(file_path: str) -> str:
             # 如果PyMuPDF不可用，尝试使用pdfminer.six
             try:
                 from pdfminer.high_level import extract_text as pdf_extract
+
                 return pdf_extract(str(file_path))
             except ImportError:
                 raise ImportError(
@@ -64,7 +66,12 @@ def extract_text(file_path: str) -> str:
         raise ValueError(f"不支持的文件格式: {file_ext}，仅支持 .pdf 和 .txt")
 
 
-def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: Optional[APIKeyRotator] = None) -> List[Dict]:
+def distill_with_gemini(
+    text: str,
+    api_key: str,
+    num_pairs: int = 10,
+    rotator: Optional[APIKeyRotator] = None,
+) -> List[Dict]:
     """
     使用Gemini API进行知识蒸馏
 
@@ -87,18 +94,52 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
     # 配置Gemini客户端
     client = genai.Client(api_key=api_key)
 
-    # System Prompt - 领域专家角色
-    system_prompt = f"""你是一位专业的领域知识专家和教学设计师。你的任务是从给定的文本中提取核心知识点，并生成高质量的问答对话对，用于训练小型语言模型。
+    # System Prompt - 领域专家角色（增强版：强调数字类信息）
+    system_prompt = f"""你是一位专业的领域知识专家和数据提取专家。
 
-要求：
-1. 仔细阅读并理解输入文本的核心内容
-2. 提取至少 {num_pairs} 组有价值的知识点
-3. 为每个知识点生成一个自然的问题（instruction）和详细的回答（output）
-4. 问题应该多样化，包括：概念解释、操作步骤、最佳实践、常见问题等
-5. 回答应该准确、详细、专业，基于文本内容
-6. input字段保持为空字符串
+【核心任务】
+从给定的文本中提取核心知识点，并生成高质量的问答对话对。
 
-输出格式（严格的JSON数组）：
+【强制要求 - 数字类信息】🔴
+⚠️ 这是最重要的要求，必须严格执行：
+
+1. **必须生成至少30%的数字相关问题**
+   - 如果生成10个问题，至少3个必须涉及数字
+   - 如果生成30个问题，至少9个必须涉及数字
+
+2. **数字必须100%准确**
+   - 文档中是"30000元"，就必须是"30000元"
+   - 不能是"3万元"、"三万"、"30000"（缺少单位）
+   - 不能省略、不能模糊化、不能近似
+
+3. **数字问题示例**：
+   ❌ 差: "图书资料报销有什么要求？"
+   ✅ 好: "图书资料在什么金额以上需要附合同？"
+
+   ❌ 差: "课题协作费需要什么材料？"
+   ✅ 好: "课题协作费在3000元以上需要提供什么材料？"
+
+4. **验证清单**（生成每个问题时必须检查）：
+   - [ ] 问题是否包含具体的数字/金额/日期？
+   - [ ] 答案中的数字是否与原文完全一致？
+   - [ ] 数字单位是否正确（元、天、个等）？
+   - [ ] 没有编造或修改数字？
+
+【问题类型要求】
+按以下比例生成问题：
+- 数字/金额/阈值类: 30%以上（强制）
+- 操作步骤类: 20%
+- 材料清单类: 20%
+- 概念解释类: 15%
+- 常见问题类: 15%
+
+【回答要求】
+- 严格基于原文，不添加原文中没有的信息
+- 对于数字类问题，必须明确说明所有相关数字
+- 保持逻辑清晰，条理分明
+
+【输出格式】
+严格的JSON数组：
 [
   {{
     "instruction": "问题内容",
@@ -107,7 +148,31 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
   }}
 ]
 
-现在请处理以下文本：
+【Few-Shot示例】
+
+✅ 正确示例1:
+原文: "图书资料单价在30000元以上的，需要附合同。"
+问题: "图书资料在什么金额以上需要附合同？"
+答案: "图书资料单价在30000元以上的，需要附合同。"
+
+✅ 正确示例2:
+原文: "课题协作费单张或累计金额3000元以上需要签订协议，10000元以上需要签订合同。"
+问题: "课题协作费在什么金额以上需要签订协议？"
+答案: "课题协作费单张或累计金额3000元以上需要签订协议。"
+
+❌ 错误示例1:
+原文: "图书资料单价在30000元以上的，需要附合同。"
+问题: "图书资料报销有什么要求？"
+答案: "图书资料报销需要附合同。"
+问题: 缺少关键数字"30000"
+
+❌ 错误示例2:
+原文: "课题协作费单张或累计金额3000元以上需要签订协议..."
+问题: "课题协作费需要什么材料？"
+答案: "需要提供协议或合同。"
+问题: 没有说明金额阈值
+
+现在请处理以下文本，确保数字类问题占比至少30%：
 
 {text}
 """
@@ -115,26 +180,26 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
     try:
         # 调用Gemini API
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model="gemini-2.5-flash",
             contents=system_prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
+                temperature=0.1,  # 降低温度以提高数字准确性
                 top_p=0.95,
                 top_k=40,
                 max_output_tokens=8192,
-                response_mime_type="application/json"
-            )
+                response_mime_type="application/json",
+            ),
         )
 
         # 解析JSON响应
         response_text = response.text.strip()
 
         # 如果响应被截断，尝试修复
-        if not response_text.endswith(']'):
+        if not response_text.endswith("]"):
             # 找到最后一个完整的对象
-            last_complete = response_text.rfind('},')
+            last_complete = response_text.rfind("},")
             if last_complete > 0:
-                response_text = response_text[:last_complete+1] + '\n]'
+                response_text = response_text[: last_complete + 1] + "\n]"
 
         result = json.loads(response_text)
 
@@ -161,7 +226,11 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
         error_msg = str(e).lower()
 
         # 检查是否是配额错误
-        if "quota" in error_msg or "resource_exhausted" in error_msg or "429" in error_msg:
+        if (
+            "quota" in error_msg
+            or "resource_exhausted" in error_msg
+            or "429" in error_msg
+        ):
             if rotator:
                 print(f"检测到配额错误，尝试切换API密钥...")
                 try:
@@ -176,7 +245,14 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
         elif (
             "permission_denied" in error_msg
             or "invalid_argument" in error_msg
-            or ("key" in error_msg and ("leaked" in error_msg or "not valid" in error_msg or "invalid" in error_msg))
+            or (
+                "key" in error_msg
+                and (
+                    "leaked" in error_msg
+                    or "not valid" in error_msg
+                    or "invalid" in error_msg
+                )
+            )
             or "403" in error_msg
             or "400" in error_msg
         ):
@@ -195,14 +271,23 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
                 print(f"⚠️ Gemini密钥失效，将切换到智谱AI处理...")
                 raise Exception(f"PERMISSION_DENIED: {e}")
         # 检查是否是上下文过长错误
-        elif "context" in error_msg and ("too long" in error_msg or "length" in error_msg or "exceed" in error_msg):
+        elif "context" in error_msg and (
+            "too long" in error_msg or "length" in error_msg or "exceed" in error_msg
+        ):
             print(f"⚠️ 检测到上下文过长错误，将切换到智谱AI处理...")
             raise Exception(f"CONTEXT_TOO_LONG: {e}")
         # 检查是否是网络超时/连接错误
-        elif "timed out" in error_msg or "connection" in error_msg or "errno 60" in error_msg or "socket" in error_msg:
+        elif (
+            "timed out" in error_msg
+            or "connection" in error_msg
+            or "errno 60" in error_msg
+            or "socket" in error_msg
+        ):
             print(f"⚠️ 检测到网络连接问题，将切换到智谱AI处理...")
             if not os.environ.get("HTTP_PROXY") and not os.environ.get("HTTPS_PROXY"):
-                print("   💡 提示: 如果您在中国大陆，请确保已配置 HTTP_PROXY 或 HTTPS_PROXY 环境变量以访问 Gemini API。")
+                print(
+                    "   💡 提示: 如果您在中国大陆，请确保已配置 HTTP_PROXY 或 HTTPS_PROXY 环境变量以访问 Gemini API。"
+                )
             raise Exception(f"NETWORK_ERROR: {e}")
         else:
             if rotator:
@@ -210,7 +295,9 @@ def distill_with_gemini(text: str, api_key: str, num_pairs: int = 10, rotator: O
             raise Exception(f"Gemini API调用失败: {e}")
 
 
-def split_text_into_chunks(text: str, chunk_size: int = 15000, overlap: int = 500) -> List[str]:
+def split_text_into_chunks(
+    text: str, chunk_size: int = 15000, overlap: int = 500
+) -> List[str]:
     """
     将长文本分割成多个块，用于处理超长文档
 
@@ -239,7 +326,7 @@ def split_text_into_chunks(text: str, chunk_size: int = 15000, overlap: int = 50
             search_text = text[search_start:search_end]
 
             # 寻找句子结束标记
-            for delimiter in ['。\n', '。', '！', '？', '\n\n']:
+            for delimiter in ["。\n", "。", "！", "？", "\n\n"]:
                 pos = search_text.rfind(delimiter)
                 if pos != -1:
                     end = search_start + pos + len(delimiter)
@@ -273,10 +360,10 @@ def save_as_jsonl(data: List[Dict], output_path: str) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 写入JSONL格式
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for item in data:
             json_line = json.dumps(item, ensure_ascii=False)
-            f.write(json_line + '\n')
+            f.write(json_line + "\n")
 
     return str(output_path)
 
@@ -284,7 +371,13 @@ def save_as_jsonl(data: List[Dict], output_path: str) -> str:
 class DataDistiller:
     """数据蒸馏器 - 完整的蒸馏流程"""
 
-    def __init__(self, api_key: str = None, api_keys: List[str] = None, use_rotation: bool = True, zhipu_api_key: str = None):
+    def __init__(
+        self,
+        api_key: str = None,
+        api_keys: List[str] = None,
+        use_rotation: bool = True,
+        zhipu_api_key: str = None,
+    ):
         """
         初始化数据蒸馏器
 
@@ -295,7 +388,9 @@ class DataDistiller:
             zhipu_api_key: 智谱AI API密钥（用于处理上下文过长的情况）
         """
         self.use_rotation = use_rotation
-        self.zhipu_api_key = zhipu_api_key or "0608bfac12ae33755667214aa6d00657.oljJQXnYGuGGF6pf"
+        self.zhipu_api_key = (
+            zhipu_api_key or "0608bfac12ae33755667214aa6d00657.oljJQXnYGuGGF6pf"
+        )
 
         if use_rotation:
             if api_keys:
@@ -303,6 +398,7 @@ class DataDistiller:
             else:
                 # 使用默认密钥列表
                 from utils.api_key_rotator import create_default_rotator
+
                 self.rotator = create_default_rotator(cooldown_minutes=60)
                 if self.rotator:
                     print(f"使用默认API密钥池，共 {len(self.rotator.api_keys)} 个密钥")
@@ -316,10 +412,7 @@ class DataDistiller:
             self.rotator = None
 
     def process_file(
-        self,
-        file_path: str,
-        output_dir: str = "data",
-        num_pairs: int = 10
+        self, file_path: str, output_dir: str = "data", num_pairs: int = 10
     ) -> str:
         """
         处理单个文件的完整蒸馏流程
@@ -344,10 +437,13 @@ class DataDistiller:
             if self.use_rotation and not self.rotator:
                 print(f"⚠️ 未配置Gemini密钥，直接使用智谱AI (GLM-4-Flash)...")
                 from utils.zhipu_client import distill_with_zhipu
+
                 distilled_data = distill_with_zhipu(text, self.zhipu_api_key, num_pairs)
                 print(f"✅ 智谱AI蒸馏完成，生成 {len(distilled_data)} 组对话对")
             elif self.use_rotation:
-                distilled_data = distill_with_gemini(text, None, num_pairs, self.rotator)
+                distilled_data = distill_with_gemini(
+                    text, None, num_pairs, self.rotator
+                )
                 print(f"蒸馏完成，生成 {len(distilled_data)} 组对话对")
             else:
                 distilled_data = distill_with_gemini(text, self.api_key, num_pairs)
@@ -355,15 +451,26 @@ class DataDistiller:
         except Exception as e:
             error_str = str(e)
             # 检查是否是上下文过长错误或网络错误或密钥失效
-            if "CONTEXT_TOO_LONG" in error_str or "NETWORK_ERROR" in error_str or "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+            if (
+                "CONTEXT_TOO_LONG" in error_str
+                or "NETWORK_ERROR" in error_str
+                or "ALL_KEYS_EXHAUSTED" in error_str
+                or "PERMISSION_DENIED" in error_str
+            ):
                 if "NETWORK_ERROR" in error_str:
                     print(f"⚠️ Gemini连接失败，自动切换到智谱AI (GLM-4-Flash)...")
-                elif "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
-                    print(f"⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)...")
+                elif (
+                    "ALL_KEYS_EXHAUSTED" in error_str
+                    or "PERMISSION_DENIED" in error_str
+                ):
+                    print(
+                        f"⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)..."
+                    )
                 else:
                     print(f"⚠️ Gemini上下文过长，切换到智谱AI (GLM-4-Flash)...")
-                
+
                 from utils.zhipu_client import distill_with_zhipu
+
                 distilled_data = distill_with_zhipu(text, self.zhipu_api_key, num_pairs)
                 print(f"✅ 智谱AI蒸馏完成，生成 {len(distilled_data)} 组对话对")
             else:
@@ -383,7 +490,7 @@ class DataDistiller:
         output_dir: str = "data",
         num_pairs_per_chunk: int = 30,
         chunk_size: int = 15000,
-        overlap: int = 500
+        overlap: int = 500,
     ) -> str:
         """
         分块处理大文件的完整蒸馏流程（适用于100+页的长文档）
@@ -416,9 +523,13 @@ class DataDistiller:
 
             try:
                 if self.use_rotation:
-                    chunk_data = distill_with_gemini(chunk, None, num_pairs_per_chunk, self.rotator)
+                    chunk_data = distill_with_gemini(
+                        chunk, None, num_pairs_per_chunk, self.rotator
+                    )
                 else:
-                    chunk_data = distill_with_gemini(chunk, self.api_key, num_pairs_per_chunk)
+                    chunk_data = distill_with_gemini(
+                        chunk, self.api_key, num_pairs_per_chunk
+                    )
 
                 print(f"   ✅ 第 {i} 块完成，生成 {len(chunk_data)} 组对话对")
                 all_distilled_data.extend(chunk_data)
@@ -426,17 +537,30 @@ class DataDistiller:
             except Exception as e:
                 error_str = str(e)
                 # 检查是否是上下文过长错误或网络错误或密钥失效
-                if "CONTEXT_TOO_LONG" in error_str or "NETWORK_ERROR" in error_str or "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
+                if (
+                    "CONTEXT_TOO_LONG" in error_str
+                    or "NETWORK_ERROR" in error_str
+                    or "ALL_KEYS_EXHAUSTED" in error_str
+                    or "PERMISSION_DENIED" in error_str
+                ):
                     if "NETWORK_ERROR" in error_str:
                         print(f"   ⚠️ Gemini连接失败，自动切换到智谱AI (GLM-4-Flash)...")
-                    elif "ALL_KEYS_EXHAUSTED" in error_str or "PERMISSION_DENIED" in error_str:
-                        print(f"   ⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)...")
+                    elif (
+                        "ALL_KEYS_EXHAUSTED" in error_str
+                        or "PERMISSION_DENIED" in error_str
+                    ):
+                        print(
+                            f"   ⚠️ Gemini密钥全部失效/禁用，自动切换到智谱AI (GLM-4-Flash)..."
+                        )
                     else:
                         print(f"   ⚠️ Gemini上下文过长，切换到智谱AI (GLM-4-Flash)...")
-                    
+
                     try:
                         from utils.zhipu_client import distill_with_zhipu
-                        chunk_data = distill_with_zhipu(chunk, self.zhipu_api_key, num_pairs_per_chunk)
+
+                        chunk_data = distill_with_zhipu(
+                            chunk, self.zhipu_api_key, num_pairs_per_chunk
+                        )
                         print(f"   ✅ 智谱AI处理完成，生成 {len(chunk_data)} 组对话对")
                         all_distilled_data.extend(chunk_data)
                     except Exception as zhipu_error:
@@ -463,10 +587,7 @@ class DataDistiller:
         return saved_path
 
     def process_directory(
-        self,
-        input_dir: str,
-        output_dir: str = "data",
-        num_pairs: int = 10
+        self, input_dir: str, output_dir: str = "data", num_pairs: int = 10
     ) -> List[str]:
         """
         批量处理目录中的所有文件
@@ -483,16 +604,14 @@ class DataDistiller:
         output_paths = []
 
         # 支持的文件格式
-        supported_extensions = ['.pdf', '.txt']
+        supported_extensions = [".pdf", ".txt"]
 
         # 遍历目录
         for file_path in input_path.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
                 try:
                     output_path = self.process_file(
-                        str(file_path),
-                        output_dir,
-                        num_pairs
+                        str(file_path), output_dir, num_pairs
                     )
                     output_paths.append(output_path)
                 except Exception as e:
@@ -522,9 +641,7 @@ if __name__ == "__main__":
 
     # 处理单个文件
     output_file = distiller.process_file(
-        file_path="data/example.pdf",
-        output_dir="data",
-        num_pairs=15
+        file_path="data/example.pdf", output_dir="data", num_pairs=15
     )
     print(f"蒸馏完成: {output_file}")
 
@@ -533,11 +650,7 @@ if __name__ == "__main__":
 
     # 示例2：使用自定义密钥列表
     print("\n=== 示例2: 使用自定义密钥列表 ===")
-    custom_keys = [
-        "YOUR_API_KEY_1",
-        "YOUR_API_KEY_2",
-        "YOUR_API_KEY_3"
-    ]
+    custom_keys = ["YOUR_API_KEY_1", "YOUR_API_KEY_2", "YOUR_API_KEY_3"]
     distiller2 = DataDistiller(api_keys=custom_keys, use_rotation=True)
 
     # 示例3：不使用轮换（单个密钥）
@@ -546,8 +659,6 @@ if __name__ == "__main__":
 
     # 处理单个文件
     output_file = distiller.process_file(
-        file_path="data/example.pdf",
-        output_dir="data",
-        num_pairs=15
+        file_path="data/example.pdf", output_dir="data", num_pairs=15
     )
     print(f"蒸馏完成: {output_file}")

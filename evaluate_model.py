@@ -35,20 +35,23 @@ class ModelEvaluator:
     def evaluate_accuracy(
         self,
         test_cases: list,
-        temperature: float = 0.1
+        temperature: float = 0.1,
+        strict_mode: bool = True
     ) -> dict:
         """
-        精确度评估 - 基于关键词匹配
+        精确度评估 - 基于关键词匹配（改进版：支持数字类问题严格评估）
 
         Args:
             test_cases: 测试用例列表 [{"question": "", "keywords": [], "description": ""}]
             temperature: 生成温度
+            strict_mode: 严格模式（默认True）- 数字类问题要求100%准确
 
         Returns:
             评估结果字典
         """
+        mode_str = "严格模式 (数字100%准确)" if strict_mode else "宽松模式 (50%阈值)"
         print("=" * 70)
-        print("📊 精确度评估")
+        print(f"📊 精确度评估 - {mode_str}")
         print("=" * 70)
 
         correct_count = 0
@@ -75,28 +78,75 @@ class ModelEvaluator:
 
             print(f"模型回答: {response}")
 
-            # 关键词匹配
-            found_keywords = [kw for kw in keywords if kw in response]
-            missing_keywords = [kw for kw in keywords if kw not in response]
+            # 改进的关键词匹配逻辑
+            if strict_mode:
+                # 严格模式：区分数字和非数字关键词
+                number_keywords = [kw for kw in keywords if kw.strip().isdigit()]
+                text_keywords = [kw for kw in keywords if not kw.strip().isdigit()]
 
-            # 计算得分
-            keyword_coverage = len(found_keywords) / len(keywords) if keywords else 0
+                # 分别匹配
+                found_numbers = [kw for kw in number_keywords if kw in response]
+                found_text = [kw for kw in text_keywords if kw in response]
+                found_keywords = found_numbers + found_text
 
-            print(f"\n关键词匹配:")
-            print(f"  ✓ 找到 ({len(found_keywords)}/{len(keywords)}): {', '.join(found_keywords)}")
-            if missing_keywords:
-                print(f"  ✗ 缺少 ({len(missing_keywords)}): {', '.join(missing_keywords)}")
+                missing_numbers = [kw for kw in number_keywords if kw not in response]
+                missing_text = [kw for kw in text_keywords if kw not in response]
+                missing_keywords = missing_numbers + missing_text
 
-            # 判断是否合格（至少包含50%关键词）
-            is_correct = keyword_coverage >= 0.5
-            if is_correct:
-                correct_count += 1
-                print(f"  ✅ 合格 (覆盖率: {keyword_coverage*100:.1f}%)")
+                # 计算得分
+                number_coverage = len(found_numbers) / len(number_keywords) if number_keywords else 1.0
+                text_coverage = len(found_text) / len(text_keywords) if text_keywords else 1.0
+                keyword_coverage = len(found_keywords) / len(keywords) if keywords else 0
+
+                # 严格判断：数字必须100%正确 + 文本至少50%
+                numbers_correct = (len(found_numbers) == len(number_keywords))
+                text_adequate = (text_coverage >= 0.5 if text_keywords else True)
+                is_correct = numbers_correct and text_adequate
+
+                # 打印详细匹配信息
+                print(f"\n关键词匹配 (严格模式):")
+                if number_keywords:
+                    print(f"  📊 数字关键词 ({len(found_numbers)}/{len(number_keywords)}): {', '.join(found_numbers) if found_numbers else '无'}")
+                    if missing_numbers:
+                        print(f"     ✗ 缺少: {', '.join(missing_numbers)}")
+                    print(f"     准确率: {number_coverage*100:.1f}% {'✅' if numbers_correct else '❌'}")
+                if text_keywords:
+                    print(f"  📝 文本关键词 ({len(found_text)}/{len(text_keywords)}): {', '.join(found_text) if found_text else '无'}")
+                    if missing_text:
+                        print(f"     ✗ 缺少: {', '.join(missing_text)}")
+                    print(f"     覆盖率: {text_coverage*100:.1f}% {'✅' if text_adequate else '❌'}")
+
+                # 判断结果
+                if is_correct:
+                    correct_count += 1
+                    print(f"  ✅ 合格 (数字准确 + 文本充足)")
+                else:
+                    if not numbers_correct:
+                        print(f"  ❌ 不合格 (数字错误)")
+                    elif not text_adequate:
+                        print(f"  ❌ 不合格 (文本不足)")
+
             else:
-                print(f"  ❌ 不合格 (覆盖率: {keyword_coverage*100:.1f}%)")
+                # 宽松模式：原来的逻辑
+                found_keywords = [kw for kw in keywords if kw in response]
+                missing_keywords = [kw for kw in keywords if kw not in response]
+                keyword_coverage = len(found_keywords) / len(keywords) if keywords else 0
+
+                print(f"\n关键词匹配 (宽松模式):")
+                print(f"  ✓ 找到 ({len(found_keywords)}/{len(keywords)}): {', '.join(found_keywords)}")
+                if missing_keywords:
+                    print(f"  ✗ 缺少 ({len(missing_keywords)}): {', '.join(missing_keywords)}")
+
+                # 判断是否合格（至少包含50%关键词）
+                is_correct = keyword_coverage >= 0.5
+                if is_correct:
+                    correct_count += 1
+                    print(f"  ✅ 合格 (覆盖率: {keyword_coverage*100:.1f}%)")
+                else:
+                    print(f"  ❌ 不合格 (覆盖率: {keyword_coverage*100:.1f}%)")
 
             # 保存详细结果
-            detailed_results.append({
+            result_item = {
                 "question": question,
                 "description": description,
                 "expected_keywords": keywords,
@@ -104,8 +154,27 @@ class ModelEvaluator:
                 "missing_keywords": missing_keywords,
                 "keyword_coverage": keyword_coverage,
                 "response": response,
-                "is_correct": is_correct
-            })
+                "is_correct": is_correct,
+                "evaluation_mode": "strict" if strict_mode else "lenient"
+            }
+
+            # 严格模式下额外保存数字/文本分类信息
+            if strict_mode:
+                number_keywords = [kw for kw in keywords if kw.strip().isdigit()]
+                text_keywords = [kw for kw in keywords if not kw.strip().isdigit()]
+                found_numbers = [kw for kw in number_keywords if kw in response]
+                found_text = [kw for kw in text_keywords if kw in response]
+
+                result_item.update({
+                    "number_keywords": number_keywords,
+                    "text_keywords": text_keywords,
+                    "found_numbers": found_numbers,
+                    "found_text": found_text,
+                    "numbers_correct": len(found_numbers) == len(number_keywords) if number_keywords else True,
+                    "text_coverage": len(found_text) / len(text_keywords) if text_keywords else 1.0
+                })
+
+            detailed_results.append(result_item)
 
             print("-" * 70)
 
@@ -421,7 +490,8 @@ def main():
         },
     ]
 
-    accuracy_result = evaluator.evaluate_accuracy(accuracy_test_cases)
+    # 1. 精确度评估（使用严格模式）
+    accuracy_result = evaluator.evaluate_accuracy(accuracy_test_cases, strict_mode=True)
     all_results.append(accuracy_result)
 
     # 2. 多样性评估
